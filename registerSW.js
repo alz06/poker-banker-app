@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/poker-banker-app/sw.js', { scope: '/poker-banker-app/' })})}
