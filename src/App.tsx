@@ -35,9 +35,9 @@ type LogItem = {
 type PendingBuyIn = {
   id: string;
   playerName: string;
-  amount: number; // poker chip buy-in amount, normally $20
-  hostFeeAmount: number; // host fee collected with first buy-in, normally $10
-  cashDue: number; // amount banker must physically collect now
+  amount: number;
+  hostFeeAmount: number;
+  cashDue: number;
   includesHostFee: boolean;
   createdAt: string;
 };
@@ -56,6 +56,8 @@ type Game = {
   host: string;
   buyInAmount: number;
   hostFeeAmount: number;
+  birthdayHostFeeAmount: number;
+  birthdayPlayers: string[];
   chipUnit: number;
   players: Player[];
   pendingBuyIns: PendingBuyIn[];
@@ -74,7 +76,8 @@ type AppState = {
   history: Game[];
 };
 
-const STORAGE_KEY = "poker_banker_local_v1";
+const STORAGE_KEY = "poker_banker_local_v2";
+const OLD_STORAGE_KEY = "poker_banker_local_v1";
 
 const REGULAR_PLAYERS = [
   { name: "Ahmad", color: "p-blue" },
@@ -117,6 +120,8 @@ function makeEmptyGame(): Game {
     host: "",
     buyInAmount: 20,
     hostFeeAmount: 10,
+    birthdayHostFeeAmount: 0,
+    birthdayPlayers: [],
     chipUnit: 1,
     players: REGULAR_PLAYERS.map((p) => ({
       name: p.name,
@@ -137,13 +142,43 @@ function makeEmptyGame(): Game {
   };
 }
 
+function migrateGame(rawGame: any): Game {
+  const fresh = makeEmptyGame();
+  const g = { ...fresh, ...rawGame } as Game;
+  g.players = (rawGame?.players || fresh.players).map((p: any, i: number) => ({
+    name: p.name,
+    color: p.color || REGULAR_PLAYERS[i]?.color || "p-guest",
+    buyIns: Number(p.buyIns || 0),
+    hostFeePaid: Boolean(p.hostFeePaid),
+    cashOut: p.cashOut ?? "",
+  }));
+  g.pendingBuyIns = (rawGame?.pendingBuyIns || []).map((p: any) => ({
+    id: p.id || uid(),
+    playerName: p.playerName,
+    amount: Number(p.amount || g.buyInAmount || 20),
+    hostFeeAmount: Number(p.hostFeeAmount || 0),
+    cashDue: Number(p.cashDue || (Number(p.amount || g.buyInAmount || 20) + Number(p.hostFeeAmount || 0))),
+    includesHostFee: Boolean(p.includesHostFee),
+    createdAt: p.createdAt || timeString(),
+  }));
+  g.cashboxChecks = rawGame?.cashboxChecks || [];
+  g.log = rawGame?.log || [];
+  g.settings = { ...fresh.settings, ...(rawGame?.settings || {}) };
+  g.birthdayPlayers = rawGame?.birthdayPlayers || [];
+  g.birthdayHostFeeAmount = Number(rawGame?.birthdayHostFeeAmount ?? 0);
+  return g;
+}
+
 function loadState(): AppState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(OLD_STORAGE_KEY);
     if (!raw) return { currentGame: makeEmptyGame(), history: [] };
     const parsed = JSON.parse(raw);
     if (!parsed?.currentGame) return { currentGame: makeEmptyGame(), history: [] };
-    return parsed;
+    return {
+      currentGame: migrateGame(parsed.currentGame),
+      history: (parsed.history || []).map((g: any) => migrateGame(g)),
+    };
   } catch {
     return { currentGame: makeEmptyGame(), history: [] };
   }
@@ -177,9 +212,19 @@ function cloneGame(game: Game): Game {
   return JSON.parse(JSON.stringify(game));
 }
 
+function hostFeeDueForPlayer(g: Game, playerName: string) {
+  if (playerName === g.host) return 0;
+  if (g.birthdayPlayers.includes(playerName)) return Number(g.birthdayHostFeeAmount || 0);
+  return Number(g.hostFeeAmount || 0);
+}
+
+function sortByDateDesc(games: Game[]) {
+  return [...games].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
 export default function App() {
   const [state, setState] = useState<AppState>(loadState);
-  const [screen, setScreen] = useState<"live" | "setup" | "settings">("setup");
+  const [screen, setScreen] = useState<"live" | "setup" | "settings" | "results">("setup");
   const [pickerMode, setPickerMode] = useState<null | "buyin" | "cashout" | "hostfee">(null);
   const [cashoutPlayer, setCashoutPlayer] = useState<string | null>(null);
   const [cashoutDraft, setCashoutDraft] = useState("");
@@ -205,6 +250,7 @@ export default function App() {
     const hostFeePlayers = game.players.filter((p) => p.name !== game.host);
     const hostPaidCount = hostFeePlayers.filter((p) => p.hostFeePaid).length;
     const hostOwedCount = hostFeePlayers.length;
+    const hostFeesCollected = game.players.reduce((sum, p) => sum + (p.hostFeePaid ? hostFeeDueForPlayer(game, p.name) : 0), 0);
     return {
       totalBuyIns,
       bank,
@@ -212,14 +258,16 @@ export default function App() {
       difference: cashOut - bank,
       hostPaidCount,
       hostOwedCount,
-      hostFees: hostPaidCount * game.hostFeeAmount,
+      hostFeesCollected,
       pendingTotal: game.pendingBuyIns.reduce((sum, p) => sum + p.cashDue, 0),
     };
   }, [game]);
 
   const warnings = useMemo(() => {
     const result: string[] = [];
-    const unpaid = game.players.filter((p) => p.name !== game.host && p.buyIns > 0 && !p.hostFeePaid).map((p) => p.name);
+    const unpaid = game.players
+      .filter((p) => p.name !== game.host && p.buyIns > 0 && !p.hostFeePaid)
+      .map((p) => p.name);
     if (unpaid.length) result.push(`Host fee missing: ${unpaid.join(", ")}`);
     if (game.pendingBuyIns.length) result.push(`${game.pendingBuyIns.length} pending buy-in waiting for cash confirmation`);
     if (totals.cashOut > 0 && totals.difference !== 0) {
@@ -293,23 +341,32 @@ export default function App() {
     setNewPlayerName("");
   }
 
+  function toggleBirthdayPlayer(playerName: string) {
+    updateGame((g) => {
+      if (g.birthdayPlayers.includes(playerName)) {
+        g.birthdayPlayers = g.birthdayPlayers.filter((n) => n !== playerName);
+        addLog(g, `${playerName} removed from birthday host-fee list.`, "info");
+      } else {
+        g.birthdayPlayers.push(playerName);
+        addLog(g, `${playerName} added to birthday host-fee list.`, "info");
+      }
+    });
+  }
+
   function createPendingBuyIn(playerName: string) {
     updateGame((g) => {
       const player = g.players.find((p) => p.name === playerName);
       if (!player) return;
 
-      // First buy-in of the night also collects host fee if it was not paid yet.
-      // Poker bank still only increases by the chip buy-in amount. Host fee stays separate.
-      const isHost = player.name === g.host;
-      const includesHostFee = !isHost && !player.hostFeePaid;
-      const hostFeeAmount = includesHostFee ? g.hostFeeAmount : 0;
-      const cashDue = g.buyInAmount + hostFeeAmount;
+      const feeDue = player.hostFeePaid ? 0 : hostFeeDueForPlayer(g, player.name);
+      const includesHostFee = feeDue > 0;
+      const cashDue = g.buyInAmount + feeDue;
 
       g.pendingBuyIns.push({
         id: uid(),
         playerName,
         amount: g.buyInAmount,
-        hostFeeAmount,
+        hostFeeAmount: feeDue,
         cashDue,
         includesHostFee,
         createdAt: timeString(),
@@ -317,7 +374,7 @@ export default function App() {
 
       addLog(
         g,
-        `${playerName} pending buy-in created. Collect ${money(cashDue)}${includesHostFee ? ` (${money(g.buyInAmount)} buy-in + ${money(g.hostFeeAmount)} host fee)` : ""}.`,
+        `${playerName} pending buy-in created. Collect ${money(cashDue)}${includesHostFee ? ` (${money(g.buyInAmount)} buy-in + ${money(feeDue)} host fee)` : ""}.`,
         "pending"
       );
     });
@@ -331,7 +388,9 @@ export default function App() {
       const player = g.players.find((p) => p.name === pending.playerName);
       if (!player) return;
       player.buyIns += 1;
-      if (pending.includesHostFee) player.hostFeePaid = true;
+      if (pending.includesHostFee || pending.hostFeeAmount === 0) {
+        if (player.name !== g.host) player.hostFeePaid = true;
+      }
       g.pendingBuyIns = g.pendingBuyIns.filter((p) => p.id !== id);
       addLog(
         g,
@@ -354,7 +413,7 @@ export default function App() {
   function toggleHostFee(playerName: string) {
     updateGame((g) => {
       const player = g.players.find((p) => p.name === playerName);
-      if (!player) return;
+      if (!player || player.name === g.host) return;
       player.hostFeePaid = !player.hostFeePaid;
       addLog(g, `${player.name} host fee marked ${player.hostFeePaid ? "paid" : "unpaid"}.`, player.hostFeePaid ? "success" : "undo");
     });
@@ -379,6 +438,8 @@ export default function App() {
       player.cashOut = String(value);
       const bought = player.buyIns * g.buyInAmount;
       addLog(g, `${player.name} cash out confirmed: ${money(value)}. Balance ${value - bought >= 0 ? "+" : ""}${money(value - bought)}.`, "cashout");
+      speak(`${player.name} cash out ${money(value)}. ${player.name} cash out ${money(value)}.`, g.settings.voice);
+      vibrate(g.settings.vibration);
     });
     setCashoutPlayer(null);
     setCashoutDraft("");
@@ -470,7 +531,12 @@ export default function App() {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result));
-        if (parsed?.currentGame) setState(parsed);
+        if (parsed?.currentGame) {
+          setState({
+            currentGame: migrateGame(parsed.currentGame),
+            history: (parsed.history || []).map((g: any) => migrateGame(g)),
+          });
+        }
       } catch {
         alert("Could not import backup file.");
       }
@@ -481,6 +547,7 @@ export default function App() {
   const selectedCashoutPlayer = game.players.find((p) => p.name === cashoutPlayer);
   const selectedBought = selectedCashoutPlayer ? selectedCashoutPlayer.buyIns * game.buyInAmount : 0;
   const selectedCash = Number(cashoutDraft || 0);
+  const resultsGames = sortByDateDesc(state.history);
 
   return (
     <div className="app-shell">
@@ -492,6 +559,7 @@ export default function App() {
           </div>
           <div className="top-buttons">
             <button className="small-btn" onClick={() => setScreen(screen === "settings" ? "live" : "settings")}>{game.settings.voice ? <Mic size={18} /> : <MicOff size={18} />}</button>
+            <button className="small-btn" onClick={() => setScreen(screen === "results" ? "live" : "results")}>Results</button>
             <button className="small-btn" onClick={requestNewGame}>New</button>
           </div>
         </div>
@@ -499,8 +567,9 @@ export default function App() {
           <Stat label="Bank" value={money(totals.bank)} />
           <Stat label="Cash Out" value={money(totals.cashOut)} />
           <Stat label="Pending" value={money(totals.pendingTotal)} />
-          <Stat label="Host Fees" value={`${totals.hostPaidCount}/${totals.hostOwedCount}`} />
+          <Stat label="Host Fees" value={money(totals.hostFeesCollected)} />
         </div>
+        <div className="subtitle host-fee-status">Host fee paid: {totals.hostPaidCount}/{totals.hostOwedCount}</div>
         {warnings.length > 0 && <div className="warning-line">SafeGuard: {warnings[0]}</div>}
       </div>
 
@@ -511,8 +580,19 @@ export default function App() {
             <label>Game Date<input value={game.date} onChange={(e) => updateGame((g) => { g.date = e.target.value; })} /></label>
             <label>Host<select value={game.host} onChange={(e) => updateGame((g) => { g.host = e.target.value; })}><option value="">Select host</option>{game.players.map((p) => <option key={p.name}>{p.name}</option>)}</select></label>
             <label>Buy-in Amount<input inputMode="numeric" value={game.buyInAmount} onChange={(e) => updateGame((g) => { g.buyInAmount = Number(e.target.value || 20); })} /></label>
-            <label>Host Fee<input inputMode="numeric" value={game.hostFeeAmount} onChange={(e) => updateGame((g) => { g.hostFeeAmount = Number(e.target.value || 10); })} /></label>
+            <label>Regular Host Fee<input inputMode="numeric" value={game.hostFeeAmount} onChange={(e) => updateGame((g) => { g.hostFeeAmount = Number(e.target.value || 10); })} /></label>
+            <label>Birthday Host Fee<input inputMode="numeric" value={game.birthdayHostFeeAmount} onChange={(e) => updateGame((g) => { g.birthdayHostFeeAmount = Number(e.target.value || 0); })} /></label>
             <label>Smallest Chip Unit<input inputMode="numeric" value={game.chipUnit} onChange={(e) => updateGame((g) => { g.chipUnit = Number(e.target.value || 1); })} /></label>
+          </div>
+          <div className="birthday-card">
+            <b>Birthday people this game</b>
+            <div className="birthday-grid">
+              {game.players.map((p) => (
+                <button key={p.name} className={game.birthdayPlayers.includes(p.name) ? "birthday-pill active" : "birthday-pill"} onClick={() => toggleBirthdayPlayer(p.name)}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="guest-row">
             <input placeholder="Guest player name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
@@ -536,14 +616,26 @@ export default function App() {
         </div>
       )}
 
+      {screen === "results" && (
+        <ResultsPage games={resultsGames} />
+      )}
+
       {screen === "live" && (
         <>
-          <div className="action-grid">
+          <div className="action-grid five-actions">
             <button className="main-action" onClick={() => setPickerMode("buyin")}><Plus />Buy-In</button>
             <button className="main-action secondary" onClick={() => setPickerMode("cashout")}><DollarSign />Cash Out</button>
             <button className="main-action secondary" onClick={() => setCashboxOpen(true)}><ShieldCheck />Cashbox</button>
             <button className="main-action secondary" onClick={() => setShowUndo(true)}><RotateCcw />Undo</button>
             <button className="main-action secondary" onClick={() => setShowLog(true)}><History />Log</button>
+          </div>
+
+          <div className="guest-live card">
+            <h2>Add Guest During Game</h2>
+            <div className="guest-row">
+              <input placeholder="Guest player name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
+              <button onClick={addGuestPlayer}>Add Guest</button>
+            </div>
           </div>
 
           {game.pendingBuyIns.length > 0 && (
@@ -565,7 +657,7 @@ export default function App() {
             </div>
           )}
 
-          <div className={`card watchdog ${warnings.length ? "amber" : "green"}`}>
+          <div className={`card safeguard ${warnings.length ? "amber" : "green"}`}>
             <h2>{warnings.length ? <AlertTriangle /> : <ShieldCheck />} SafeGuard</h2>
             {warnings.length ? warnings.map((w, i) => <div className="watch-line" key={i}>• {w}</div>) : <div className="watch-line">No active warnings. Current bank is {money(totals.bank)}.</div>}
           </div>
@@ -722,6 +814,31 @@ function PokerChart({ game }: { game: Game }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ResultsPage({ games }: { games: Game[] }) {
+  return (
+    <div className="card results-page">
+      <h2>Saved Results</h2>
+      {games.length === 0 && <div className="muted">No saved games yet. Finish & Save Night will add results here.</div>}
+      {games.map((g) => {
+        const bank = g.players.reduce((sum, p) => sum + p.buyIns * g.buyInAmount, 0);
+        const cash = g.players.reduce((sum, p) => sum + Number(p.cashOut || 0), 0);
+        const diff = cash - bank;
+        return (
+          <details key={g.id} className="result-card">
+            <summary>
+              <b>{g.date}</b>
+              <span>Host: {g.host || "—"}</span>
+              <span>Buy-ins: {money(bank)}</span>
+              <span className={diff === 0 ? "pos" : "neg"}>Diff: {diff >= 0 ? "+" : ""}{money(diff)}</span>
+            </summary>
+            <PokerChart game={g} />
+          </details>
+        );
+      })}
     </div>
   );
 }
