@@ -630,14 +630,6 @@ export default function App() {
             <button className="main-action secondary" onClick={() => setShowLog(true)}><History />Log</button>
           </div>
 
-          <div className="guest-live card">
-            <h2>Add Guest During Game</h2>
-            <div className="guest-row">
-              <input placeholder="Guest player name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
-              <button onClick={addGuestPlayer}>Add Guest</button>
-            </div>
-          </div>
-
           {game.pendingBuyIns.length > 0 && (
             <div className="card amber">
               <h2>Pending Buy-ins</h2>
@@ -663,6 +655,16 @@ export default function App() {
           </div>
 
           <PokerChart game={game} />
+
+          <div className="guest-live card">
+            <h2>Add Guest During Game</h2>
+            <div className="guest-row">
+              <input placeholder="Guest player name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
+              <button onClick={addGuestPlayer}>Add Guest</button>
+            </div>
+          </div>
+
+
 
           <div className="card">
             <h2>Final Balance</h2>
@@ -864,3 +866,4 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </motion.div>
   );
 }
+
