@@ -1294,3 +1294,32 @@ input::selection {
     height: 16px;
   }
 }
+
+/* === SAFEGUARD DETAILS POPUP === */
+.safeguard-pill {
+  cursor: pointer;
+}
+
+.safeguard-details {
+  display: grid;
+  gap: 12px;
+}
+
+.safeguard-error-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fffbeb;
+  border: 2px solid #f59e0b;
+  color: #92400e;
+  border-radius: 18px;
+  padding: 14px;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.safeguard-error-row svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}

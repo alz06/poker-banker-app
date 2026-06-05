@@ -236,6 +236,7 @@ export default function App() {
   const [showNewConfirm, setShowNewConfirm] = useState(false);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [showTopMenu, setShowTopMenu] = useState(false);
+  const [showSafeGuardDetails, setShowSafeGuardDetails] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState("");
   const [setupError, setSetupError] = useState("");
 
@@ -560,10 +561,14 @@ export default function App() {
             <div className="subtitle">Host: {game.host || "not selected"}</div>
           </div>
 
-          <div className={warnings.length ? "safeguard-pill warn" : "safeguard-pill ok"} title={warnings[0] || "No active warnings"}>
+          <button
+            className={warnings.length ? "safeguard-pill warn" : "safeguard-pill ok"}
+            title={warnings[0] || "No active warnings"}
+            onClick={() => setShowSafeGuardDetails(true)}
+          >
             {warnings.length ? <AlertTriangle size={18} /> : <ShieldCheck size={18} />}
             <span>{warnings.length ? warnings.length : "OK"}</span>
-          </div>
+          </button>
 
           <div className="menu-wrap">
             <button className="small-btn menu-button" onClick={() => setShowTopMenu(!showTopMenu)}>
@@ -788,6 +793,28 @@ export default function App() {
           </Modal>
         )}
 
+        {showSafeGuardDetails && (
+          <Modal title="SafeGuard Details" onClose={() => setShowSafeGuardDetails(false)}>
+            {warnings.length === 0 ? (
+              <div className="ok-box">
+                SafeGuard is clean. No active warnings.
+              </div>
+            ) : (
+              <div className="safeguard-details">
+                <div className="error-box">
+                  SafeGuard found {warnings.length} issue{warnings.length > 1 ? "s" : ""}.
+                </div>
+                {warnings.map((w, i) => (
+                  <div key={i} className="safeguard-error-row">
+                    <AlertTriangle size={22} />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button className="primary big" onClick={() => setShowSafeGuardDetails(false)}>Got It</button>
+          </Modal>
+        )}
         {showLog && (
           <Modal title="Night Log" onClose={() => setShowLog(false)} wide>
             {game.log.length === 0 ? <div className="muted">No log yet.</div> : game.log.map((l) => <div key={l.id} className={`log-line ${l.kind}`}><b>{l.time}</b> — {l.text}</div>)}
@@ -890,6 +917,7 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </motion.div>
   );
 }
+
 
 
 
