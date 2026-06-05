@@ -1323,3 +1323,24 @@ input::selection {
   flex: 0 0 auto;
   margin-top: 1px;
 }
+
+/* === MODERN TABLE ROW STRIPING === */
+.compact-table tbody tr:nth-child(odd) {
+  background: #ffffff;
+}
+
+.compact-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.compact-table tbody tr:hover {
+  background: #eef6ff;
+}
+
+.compact-table tbody tr td {
+  border-color: #e2e8f0;
+}
+
+.compact-table tbody tr:nth-child(even) td {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
