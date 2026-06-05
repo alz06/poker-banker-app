@@ -5,7 +5,6 @@ import {
   DollarSign,
   Download,
   History,
-  Menu,
   Mic,
   MicOff,
   Plus,
@@ -235,7 +234,6 @@ export default function App() {
   const [showLog, setShowLog] = useState(false);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
-  const [showTopMenu, setShowTopMenu] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState("");
   const [setupError, setSetupError] = useState("");
 
@@ -554,60 +552,25 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="top-card sticky">
-        <div className="top-row compact-top-row">
-          <div className="top-title-wrap">
-            <div className="title">{game.date}</div>
-            <div className="subtitle">Host: {game.host || "not selected"}</div>
+        <div className="top-row">
+          <div>
+            <div className="title">Poker Banker</div>
+            <div className="subtitle">{game.date} {game.host ? `• Host: ${game.host}` : "• Host not selected"}</div>
           </div>
-
-          <div className={warnings.length ? "safeguard-pill warn" : "safeguard-pill ok"} title={warnings[0] || "No active warnings"}>
-            {warnings.length ? <AlertTriangle size={18} /> : <ShieldCheck size={18} />}
-            <span>{warnings.length ? warnings.length : "OK"}</span>
-          </div>
-
-          <div className="menu-wrap">
-            <button className="small-btn menu-button" onClick={() => setShowTopMenu(!showTopMenu)}>
-              <Menu size={24} />
-            </button>
-
-            {showTopMenu && (
-              <div className="top-menu">
-                <button onClick={() => { updateGame((g) => { g.settings.voice = !g.settings.voice; }); setShowTopMenu(false); }}>
-                  {game.settings.voice ? <Mic size={18} /> : <MicOff size={18} />}
-                  {game.settings.voice ? "Mute voice" : "Voice on"}
-                </button>
-
-                <button onClick={() => { setScreen(screen === "results" ? "live" : "results"); setShowTopMenu(false); }}>
-                  <History size={18} /> Results
-                </button>
-
-                <button onClick={() => { requestNewGame(); setShowTopMenu(false); }}>
-                  <Plus size={18} /> New game
-                </button>
-              </div>
-            )}
+          <div className="top-buttons">
+            <button className="small-btn" onClick={() => setScreen(screen === "settings" ? "live" : "settings")}>{game.settings.voice ? <Mic size={18} /> : <MicOff size={18} />}</button>
+            <button className="small-btn" onClick={() => setScreen(screen === "results" ? "live" : "results")}>Results</button>
+            <button className="small-btn" onClick={requestNewGame}>New</button>
           </div>
         </div>
-
-        <div className="stats-grid top-stats three">
+        <div className="stats-grid four">
           <Stat label="Bank" value={money(totals.bank)} />
           <Stat label="Cash Out" value={money(totals.cashOut)} />
-          <div className="stat host-stat">
-            <span>Host Fees</span>
-            <b>{money(totals.hostFeesCollected)}</b>
-            <em>{totals.hostPaidCount}/{totals.hostOwedCount}</em>
-          </div>
+          <Stat label="Pending" value={money(totals.pendingTotal)} />
+          <Stat label="Host Fees" value={money(totals.hostFeesCollected)} />
         </div>
-
-        {screen === "live" && (
-          <div className="action-grid five-actions sticky-actions">
-            <button className="main-action" onClick={() => setPickerMode("buyin")}><Plus />Buy-In</button>
-            <button className="main-action secondary" onClick={() => setPickerMode("cashout")}><DollarSign />Cash Out</button>
-            <button className="main-action secondary" onClick={() => setCashboxOpen(true)}><ShieldCheck />Cashbox</button>
-            <button className="main-action secondary" onClick={() => setShowUndo(true)}><RotateCcw />Undo</button>
-            <button className="main-action secondary" onClick={() => setShowLog(true)}><History />Log</button>
-          </div>
-        )}
+        <div className="subtitle host-fee-status">Host fee paid: {totals.hostPaidCount}/{totals.hostOwedCount}</div>
+        {warnings.length > 0 && <div className="warning-line">SafeGuard: {warnings[0]}</div>}
       </div>
 
       {screen === "setup" && (
@@ -685,7 +648,21 @@ export default function App() {
               ))}
             </div>
           )}
-<PokerChart game={game} />
+
+          <div className={`card safeguard ${warnings.length ? "amber" : "green"}`}>
+            <h2>{warnings.length ? <AlertTriangle /> : <ShieldCheck />} SafeGuard</h2>
+            {warnings.length ? warnings.map((w, i) => <div className="watch-line" key={i}>• {w}</div>) : <div className="watch-line">No active warnings. Current bank is {money(totals.bank)}.</div>}
+          </div>
+
+          <PokerChart game={game} />
+
+          <div className="guest-live card">
+            <h2>Add Guest During Game</h2>
+            <div className="guest-row">
+              <input placeholder="Guest player name" value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)} />
+              <button onClick={addGuestPlayer}>Add Guest</button>
+            </div>
+          </div>
 
 
 
@@ -809,7 +786,7 @@ function Stat({ label, value, good }: { label: string; value: string; good?: boo
 function PokerChart({ game }: { game: Game }) {
   return (
     <div className="card chart-card compact-chart-card">
-
+      <div className="compact-table-title">Live Game Table</div>
       <table className="compact-table">
         <thead>
           <tr>
@@ -890,7 +867,6 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </motion.div>
   );
 }
-
 
 
 
