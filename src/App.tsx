@@ -802,7 +802,8 @@ function PokerChart({ game }: { game: Game }) {
           {game.players.map((p) => {
             const bought = p.buyIns * game.buyInAmount;
             const cash = Number(p.cashOut || 0);
-            const balance = p.cashOut === "" ? null : cash - bought;
+            const hasActivity = p.buyIns > 0 || p.cashOut !== "";
+            const balance = hasActivity ? cash - bought : null;
             return (
               <tr key={p.name}>
                 <td className="compact-name"><b>{p.name}</b></td>
@@ -866,4 +867,5 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </motion.div>
   );
 }
+
 
