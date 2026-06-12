@@ -232,7 +232,6 @@ export default function App() {
   const [cashboxOpen, setCashboxOpen] = useState(false);
   const [actualCashbox, setActualCashbox] = useState("");
   const [showUndo, setShowUndo] = useState(false);
-  const [selectedUndoLogId, setSelectedUndoLogId] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [showNewConfirm, setShowNewConfirm] = useState(false);
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
@@ -462,90 +461,51 @@ export default function App() {
     setCashboxOpen(false);
   }
 
-  function isLogAlreadyUndone(logId: string) {
-    return game.log.some((l) => l.text.includes("UNDO ACTION " + logId + ":"));
-  }
-
-  function isLogUndoable(logItem: LogItem) {
-    if (logItem.kind === "undo" || logItem.kind === "warn" || logItem.kind === "info") return false;
-    if (isLogAlreadyUndone(logItem.id)) return false;
-
-    return (
-      /^(.+) buy-in confirmed/.test(logItem.text) ||
-      /^(.+) cash out confirmed/.test(logItem.text) ||
-      /^(.+) host fee marked paid/.test(logItem.text) ||
-      /^(.+) host fee marked unpaid/.test(logItem.text) ||
-      /^(.+) pending buy-in created/.test(logItem.text)
-    );
-  }
-
-  function undoSpecificLogAction(logId: string) {
+  function undoLastMaterialAction() {
     updateGame((g) => {
-      const target = g.log.find((l) => l.id === logId);
-      if (!target) {
-        addLog(g, "UNDO attempted, but the selected action was not found.", "warn");
+      const last = g.log.find((l) => l.kind !== "undo" && l.kind !== "info" && l.kind !== "warn");
+      if (!last) {
+        addLog(g, "UNDO attempted, but there was no undoable action.", "warn");
         return;
       }
 
-      if (g.log.some((l) => l.text.includes("UNDO ACTION " + logId + ":"))) {
-        addLog(g, "UNDO attempted, but this action was already undone.", "warn");
-        return;
-      }
-
-      const buyMatch = target.text.match(/^(.+) buy-in confirmed/);
-      const cashMatch = target.text.match(/^(.+) cash out confirmed/);
-      const hostPaidMatch = target.text.match(/^(.+) host fee marked paid/);
-      const hostUnpaidMatch = target.text.match(/^(.+) host fee marked unpaid/);
-      const pendingMatch = target.text.match(/^(.+) pending buy-in created/);
+      const buyMatch = last.text.match(/^(.+) buy-in confirmed/);
+      const cashMatch = last.text.match(/^(.+) cash out confirmed/);
+      const hostPaidMatch = last.text.match(/^(.+) host fee marked paid/);
+      const pendingMatch = last.text.match(/^(.+) pending buy-in created/);
 
       if (buyMatch) {
         const player = g.players.find((p) => p.name === buyMatch[1]);
         if (player && player.buyIns > 0) {
           player.buyIns -= 1;
-          if (target.text.includes("host fee collected")) {
-            player.hostFeePaid = false;
-          }
-          addLog(g, "UNDO ACTION " + target.id + ": reversed buy-in for " + player.name + ".", "undo");
-        } else {
-          addLog(g, "UNDO ACTION " + target.id + ": buy-in undo failed because player/buy-in was not found.", "warn");
+          addLog(g, `UNDO: ${player.name} confirmed buy-in removed.`, "undo");
         }
       } else if (cashMatch) {
         const player = g.players.find((p) => p.name === cashMatch[1]);
         if (player) {
           player.cashOut = "";
-          addLog(g, "UNDO ACTION " + target.id + ": removed cash out for " + player.name + ".", "undo");
-        } else {
-          addLog(g, "UNDO ACTION " + target.id + ": cash-out undo failed because player was not found.", "warn");
+          addLog(g, `UNDO: ${player.name} cash out removed.`, "undo");
         }
       } else if (hostPaidMatch) {
         const player = g.players.find((p) => p.name === hostPaidMatch[1]);
         if (player) {
           player.hostFeePaid = false;
-          addLog(g, "UNDO ACTION " + target.id + ": removed host fee paid mark for " + player.name + ".", "undo");
-        }
-      } else if (hostUnpaidMatch) {
-        const player = g.players.find((p) => p.name === hostUnpaidMatch[1]);
-        if (player && player.name !== g.host) {
-          player.hostFeePaid = true;
-          addLog(g, "UNDO ACTION " + target.id + ": restored host fee paid mark for " + player.name + ".", "undo");
+          addLog(g, `UNDO: ${player.name} host fee payment removed.`, "undo");
         }
       } else if (pendingMatch) {
         const playerName = pendingMatch[1];
         const pending = g.pendingBuyIns.find((p) => p.playerName === playerName);
         if (pending) {
           g.pendingBuyIns = g.pendingBuyIns.filter((p) => p.id !== pending.id);
-          addLog(g, "UNDO ACTION " + target.id + ": removed pending buy-in for " + playerName + ".", "undo");
-        } else {
-          addLog(g, "UNDO ACTION " + target.id + ": pending buy-in was already gone.", "undo");
+          addLog(g, `UNDO: ${playerName} pending buy-in removed.`, "undo");
         }
       } else {
-        addLog(g, "UNDO ACTION " + target.id + ": selected action was not undoable.", "warn");
+        addLog(g, "UNDO attempted, but last action was not undoable.", "warn");
       }
     });
-
-    setSelectedUndoLogId(null);
     setShowUndo(false);
   }
+
   function saveFinalGame() {
     const finalized = cloneGame(game);
     finalized.finalized = true;
@@ -587,7 +547,6 @@ export default function App() {
     reader.readAsText(file);
   }
 
-  const selectedUndoLog = selectedUndoLogId ? game.log.find((l) => l.id === selectedUndoLogId) : null;
   const selectedCashoutPlayer = game.players.find((p) => p.name === cashoutPlayer);
   const selectedBought = selectedCashoutPlayer ? selectedCashoutPlayer.buyIns * game.buyInAmount : 0;
   const selectedCash = Number(cashoutDraft || 0);
@@ -786,49 +745,12 @@ export default function App() {
             {game.cashboxChecks.slice(0, 5).map((c) => <div className="log-line" key={c.id}>{c.time}: expected {money(c.expected)} / actual {money(c.actual)} / diff {c.diff >= 0 ? "+" : ""}{money(c.diff)}</div>)}
           </Modal>
         )}
-        {showUndo && (
-          <Modal
-            title={selectedUndoLog ? "Confirm Undo" : "Select Action to Undo"}
-            onClose={() => {
-              setSelectedUndoLogId(null);
-              setShowUndo(false);
-            }}
-          >
-            {!selectedUndoLog ? (
-              <div className="undo-list">
-                <div className="warning-box">
-                  Select the exact action that needs to be reversed. This is safer than only undoing the last action.
-                </div>
 
-                {game.log.filter((l) => isLogUndoable(l)).length === 0 ? (
-                  <div className="muted">No undoable actions available.</div>
-                ) : (
-                  game.log.filter((l) => isLogUndoable(l)).map((l) => (
-                    <button key={l.id} className={"undo-item " + l.kind} onClick={() => setSelectedUndoLogId(l.id)}>
-                      <b>{l.time}</b>
-                      <span>{l.text}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : (
-              <div className="undo-confirm-danger">
-                <div className="undo-danger-title">CONFIRM UNDO</div>
-                <div className="undo-danger-text">
-                  You are about to reverse this action:
-                </div>
-                <div className="undo-selected-action">
-                  <b>{selectedUndoLog.time}</b>
-                  <span>{selectedUndoLog.text}</span>
-                </div>
-                <button className="danger big" onClick={() => undoSpecificLogAction(selectedUndoLog.id)}>
-                  YES, UNDO THIS ACTION
-                </button>
-                <button className="neutral big" onClick={() => setSelectedUndoLogId(null)}>
-                  Go Back
-                </button>
-              </div>
-            )}
+        {showUndo && (
+          <Modal title="Undo Last Action" onClose={() => setShowUndo(false)}>
+            <div className="warning-box">Undo will be recorded in the night log so the story of the game stays clear.</div>
+            <button className="danger big" onClick={undoLastMaterialAction}>Yes, Undo Last Action</button>
+            <button className="neutral big" onClick={() => setShowUndo(false)}>Cancel</button>
           </Modal>
         )}
 
@@ -987,7 +909,6 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </motion.div>
   );
 }
-
 
 
 
