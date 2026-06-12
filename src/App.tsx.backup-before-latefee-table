@@ -904,19 +904,18 @@ function Stat({ label, value, good }: { label: string; value: string; good?: boo
 }
 
 function PokerChart({ game }: { game: Game }) {
-  const showLate = Boolean((game as any).lateFeeEnabled);
-
   return (
     <div className="card chart-card compact-chart-card">
-      <table className={showLate ? "compact-table has-late" : "compact-table no-late"}>
+
+      <table className="compact-table">
         <thead>
           <tr>
-            <th className="col-player">Player</th>
-            <th className="col-buys">Buys</th>
-            <th className="col-bought">Bought</th>
-            {showLate && <th className="col-late">Late</th>}
-            <th className="col-cash">Cash</th>
-            <th className="col-balance">Bal</th>
+            <th>Player</th>
+            <th>Buys</th>
+            <th>Bought</th>
+            <th>H</th>
+            <th>Cash</th>
+            <th>Bal</th>
           </tr>
         </thead>
         <tbody>
@@ -925,32 +924,14 @@ function PokerChart({ game }: { game: Game }) {
             const cash = Number(p.cashOut || 0);
             const hasActivity = p.buyIns > 0 || p.cashOut !== "";
             const balance = hasActivity ? cash - bought : null;
-            const latePaid = Number((p as any).lateFeePaid || 0);
-
             return (
               <tr key={p.name}>
-                <td className="compact-name name-with-mark">
-                  <b>{p.name}</b>
-                  {p.name === game.host ? (
-                    <span className="corner-mark host-dash">-</span>
-                  ) : p.hostFeePaid ? (
-                    <span className="corner-mark host-check">?</span>
-                  ) : null}
-                </td>
-
+                <td className="compact-name"><b>{p.name}</b></td>
                 <td className="compact-buys"><b>{p.buyIns || ""}</b></td>
                 <td><b>{bought ? money(bought) : ""}</b></td>
-
-                {showLate && (
-                  <td className="late-fee-cell">
-                    <b>{latePaid ? money(latePaid) : ""}</b>
-                  </td>
-                )}
-
+                <td className={p.name === game.host ? "host-empty" : p.hostFeePaid ? "host-paid" : "host-empty"}>{p.name === game.host ? "-" : p.hostFeePaid ? "✓" : ""}</td>
                 <td><b>{p.cashOut !== "" ? money(p.cashOut) : ""}</b></td>
-                <td className={balance === null ? "" : balance > 0 ? "pos" : balance < 0 ? "neg" : ""}>
-                  <b>{balance === null ? "" : `${balance > 0 ? "+" : ""}${money(balance)}`}</b>
-                </td>
+                <td className={balance === null ? "" : balance > 0 ? "pos" : balance < 0 ? "neg" : ""}><b>{balance === null ? "" : `${balance > 0 ? "+" : ""}${money(balance)}`}</b></td>
               </tr>
             );
           })}
@@ -1006,7 +987,6 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </motion.div>
   );
 }
-
 
 
 
